@@ -10,6 +10,7 @@ import os
 import uuid
 from typing import Optional
 
+
 print("core_logic.py: Loading environment variables...")
 load_dotenv()
 

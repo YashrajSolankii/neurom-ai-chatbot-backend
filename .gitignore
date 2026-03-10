@@ -17,3 +17,8 @@ chroma_db_api_neuroum/
 # OS
 .DS_Store
 Thumbs.db
+
+# Audio responses
+audio_responses/
+*.mp3
+*.wav
