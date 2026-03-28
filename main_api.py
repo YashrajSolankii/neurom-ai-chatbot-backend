@@ -111,6 +111,7 @@ async def voice_chat(audio: UploadFile = File(...), session_id: Optional[str] = 
 
         return JSONResponse({
             "session_id": result["session_id"],
+            "transcribed_text": user_text,
             "response_text": response_text,
             "audio_url": audio_url
         })

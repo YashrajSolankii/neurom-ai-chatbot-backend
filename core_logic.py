@@ -1,5 +1,3 @@
-# core_logic.py
-
 from groq import Groq
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -9,9 +7,33 @@ from dotenv import load_dotenv
 import os
 import uuid
 from typing import Optional
+from transformers import pipeline
+import torch
 
+# ---------------- FIX: load_dotenv FIRST before anything else ----------------
 print("core_logic.py: Loading environment variables...")
 load_dotenv()
+
+# ---------------- DEVICE SETUP ----------------
+DEVICE = 0 if torch.cuda.is_available() else -1
+
+print(f"Emotion model running on: {'GPU' if DEVICE == 0 else 'CPU'}")
+
+# ---------------- LOAD MODEL ONCE ----------------
+emotion_classifier = pipeline(
+    "text-classification",
+    model="j-hartmann/emotion-english-distilroberta-base",
+    top_k=None,
+    device=DEVICE
+)
+# ---------------- INTENT CLASSIFIER ----------------
+intent_classifier = pipeline(
+    "zero-shot-classification",
+    model="facebook/bart-large-mnli",
+    device=DEVICE
+)
+
+
 
 # ---------------- GLOBAL MEMORY STORE ----------------
 SESSION_MEMORY = {}
@@ -41,9 +63,22 @@ MODULE_REGISTRY = {
     "power_nap_10": {"module_name": "Power Nap", "category": "sleep"},
     "journal": {"module_name": "Journaling", "category": "reflection"},
     "affirmation": {"module_name": "Affirmations", "category": "emotional_regulation"},
-    "sherlock_mode": {"module_name": "Sherlock Mode", "category": "cognitive"},
+    "sherlock_holmes": {"module_name": "Sherlock holmes", "category": "cognitive"},
     "number_nest": {"module_name": "Cognitive Games", "category": "cognitive"},
-    "night_music": {"module_name": "Night Music", "category": "sleep"}
+    "night_music": {"module_name": "Night Music", "category": "sleep"},
+
+    #Real cognitive games from NeurOm app
+    "mindflip": {"module_name": "MindFlip", "category": "cognitive"},
+    "number_nest": {"module_name": "NumberNest", "category": "cognitive"},
+    "wordhunt": {"module_name": "WordHunt", "category": "cognitive"},
+    "alphaquest": {"module_name": "AlphaQuest", "category": "cognitive"},
+    "percentpro": {"module_name": "PercentPro", "category": "cognitive"},
+    "numberstorm": {"module_name": "NumberStorm", "category": "cognitive"},
+    "ballrush": {"module_name": "BallRush", "category": "cognitive"},
+    "rushhour": {"module_name": "RushHour", "category": "cognitive"},
+    "stackup": {"module_name": "StackUp", "category": "cognitive"},
+    "brickbreaker": {"module_name": "BrickBreaker", "category": "cognitive"},
+
 }
 
 # ---------------- MEMORY HELPERS ----------------
@@ -64,64 +99,177 @@ def update_session_history(session_id: str, role: str, message: str):
 
     SESSION_MEMORY[session_id] = SESSION_MEMORY[session_id][-MEMORY_WINDOW:]
 
-# ---------------- EMOTION DETECTION (FIXED) ----------------
+
+# ---------------- EMOTION DETECTION (FINAL HYBRID SYSTEM) ----------------
+import re
+
+def normalize_text(text: str):
+    text = text.lower()
+
+    # Normalize apostrophes and symbols
+    text = text.replace("\u2019", "'").replace("\u2018", "'")
+    text = text.replace("\u201c", '"').replace("\u201d", '"')
+
+    # Remove extra spaces
+    text = re.sub(r"\s+", " ", text).strip()
+
+    return text
+
+
 def detect_emotion(text: str):
-    text = text.lower()
+    try:
+        clean_text = normalize_text(text)
 
-    emotion_keywords = {
-        "stress": ["stressed", "pressure", "overwhelmed", "exam", "deadline"],
-        "anxiety": ["anxious", "nervous", "worried", "panic"],
-        "sadness": ["sad", "down", "depressed", "unhappy"],
-        "anger": ["angry", "frustrated", "irritated"],
-        "burnout": ["exhausted", "burnt out", "drained", "tired"],
-        "loneliness": ["alone", "lonely", "isolated"],
-        "positive": ["happy", "excited", "motivated"]
-    }
+        # ---------------- AI MODEL ----------------
+        results = emotion_classifier(clean_text)[0]
 
-    emotion_scores = {}
-    for emotion, keywords in emotion_keywords.items():
-        emotion_scores[emotion] = sum(1 for word in keywords if word in text)
+        label_mapping = {
+            "anger": "anger",
+            "disgust": "anger",
+            "fear": "anxiety",
+            "joy": "positive",
+            "neutral": "neutral",
+            "sadness": "sadness",
+            "surprise": "anxiety"
+        }
 
-    detected_emotion = max(emotion_scores, key=emotion_scores.get)
-    score = emotion_scores[detected_emotion]
+        best = max(results, key=lambda x: x["score"])
+        mapped_emotion = label_mapping.get(best["label"], "neutral")
+        model_confidence = float(best["score"])
 
-    confidence = min(0.5 + (score * 0.1), 0.95)
+        
+        negative_signals = [
+        "nothing", "no one", "never", "not working",
+        "not going", "wrong", "off", "bad", "stuck"
+        ]
 
-    intensity = "low"
-    if score >= 3:
-        intensity = "high"
-    elif score == 2:
-        intensity = "medium"
+        if any(word in clean_text for word in negative_signals):
+            if mapped_emotion in ["neutral", "positive"]:
+                mapped_emotion = "sadness"
+                model_confidence = max(model_confidence, 0.65)
 
-    return {
-        "emotion": detected_emotion,
-        "confidence": round(confidence, 2),
-        "intensity": intensity
-    }
+        # ---------------- SEMANTIC PATTERNS ----------------
+        sadness_patterns = [
+            "feel nothing", "going through", "empty", "numb",
+            "no purpose", "pointless", "lost interest"
+        ]
 
-# ---------------- INTENT DETECTION (UPDATED) ----------------
+        anxiety_patterns = [
+            "mind won't stop", "can't stop thinking",
+            "thoughts keep", "over and over",
+            "replaying", "won't slow down"
+        ]
+
+        burnout_patterns = [
+            "always tired", "no energy",
+            "drained", "exhausted", "burnt out"
+        ]
+
+        pattern_emotion = None
+        pattern_strength = 0
+
+        if any(p in clean_text for p in sadness_patterns):
+            pattern_emotion = "sadness"
+            pattern_strength = 0.75
+
+        elif any(p in clean_text for p in anxiety_patterns):
+            pattern_emotion = "anxiety"
+            pattern_strength = 0.75
+
+        elif any(p in clean_text for p in burnout_patterns):
+            pattern_emotion = "burnout"
+            pattern_strength = 0.75
+
+        # ---------------- DECISION LOGIC ----------------
+        if model_confidence >= 0.65:
+            final_emotion = mapped_emotion
+            confidence = model_confidence
+
+        elif pattern_emotion:
+            final_emotion = pattern_emotion
+            confidence = max(model_confidence, pattern_strength)
+
+        else:
+            final_emotion = mapped_emotion
+            confidence = model_confidence
+
+        confidence = round(confidence, 2)
+
+        # ---------------- INTENSITY ----------------
+        if confidence >= 0.75:
+            intensity = "high"
+        elif confidence >= 0.5:
+            intensity = "medium"
+        else:
+            intensity = "low"
+
+        return {
+            "emotion": final_emotion,
+            "confidence": confidence,
+            "intensity": intensity
+        }
+
+    except Exception as e:
+        print("Emotion detection error:", e)
+        return {
+            "emotion": "neutral",
+            "confidence": 0.5,
+            "intensity": "low"
+        }
+
+# ---------------- INTENT DETECTION (AI-IMPROVED) ----------------
+# ---------------- INTENT DETECTION (AI HYBRID) ----------------
 def detect_intent(text: str):
-    text = text.lower()
+    clean_text = normalize_text(text)
 
-    intent_map = {
-        "breathing_request": ["overwhelmed", "pressure", "tight chest"],
-        "meditation_request": ["anxious", "panic", "uneasy"],
-        "gratitude_request": ["empty", "sad", "low"],
-        "tratak_request": ["angry", "frustrated", "rage"],
-        "sleep_request": ["sleep", "insomnia", "restless"],
-        "journaling_request": ["lonely", "alone", "isolated"],
-        "affirmation_request": ["confidence", "motivation", "self worth"],
-        "sherlock_request": ["overthinking", "looping", "thinking too much"],
-        "cognitive_training": ["focus", "concentration"],
-        "music_request": ["sleep music", "night"],
-        "knowledge_query": ["what is", "why", "how"]
-    }
+    candidate_labels = [
+        "user needs help calming down",
+        "user is feeling anxious or overwhelmed",
+        "user feels sad or emotionally low",
+        "user wants to sleep or relax",
+        "user feels lonely or isolated",
+        "user wants motivation or confidence",
+        "user is overthinking or stuck in thoughts",
+        "user wants to improve focus",
+        "user wants relaxing music",
+        "user is asking for knowledge or explanation"
+    ]
 
-    for intent, keywords in intent_map.items():
-        if any(word in text for word in keywords):
-            return intent
+    try:
+        result = intent_classifier(
+            clean_text,
+            candidate_labels,
+            multi_label=False
+        )
 
-    return "emotional_regulation"
+        top_label = result["labels"][0]
+        score = result["scores"][0]
+
+        # ---------------- LABEL MAPPING ----------------
+        mapping = {
+            "user needs help calming down": "breathing_request",
+            "user is feeling anxious or overwhelmed": "meditation_request",
+            "user feels sad or emotionally low": "sherlock_request",
+            "user wants to sleep or relax": "sleep_request",
+            "user feels lonely or isolated": "journaling_request",
+            "user wants motivation or confidence": "affirmation_request",
+            "user is overthinking or stuck in thoughts": "sherlock_request",
+            "user wants to improve focus": "cognitive_training",
+            "user wants relaxing music": "music_request",
+            "user is asking for knowledge or explanation": "knowledge_query"
+        }
+
+        predicted_intent = mapping.get(top_label, "emotional_regulation")
+
+        # ---------------- CONFIDENCE FALLBACK ----------------
+        if score < 0.4:
+            return "emotional_regulation"
+
+        return predicted_intent
+
+    except Exception as e:
+        print("Intent detection error:", e)
+        return "emotional_regulation"
 
 # ---------------- ROUTING ----------------
 def route_to_module(intent, emotion):
@@ -141,7 +289,7 @@ def route_to_module(intent, emotion):
     if intent == "affirmation_request":
         return "affirmation"
     if intent == "sherlock_request":
-        return "sherlock_mode"
+        return "sherlock_holmes"
     if intent == "cognitive_training":
         return "number_nest"
     if intent == "music_request":
@@ -154,13 +302,13 @@ def route_to_module(intent, emotion):
 
     return "morning_meditation_guided"
 
-# ---------------- CRISIS DETECTION ----------------
+# ---------------- CRISIS DETECTION (Updated) ----------------
 def detect_crisis(text: str):
     text = text.lower()
 
     high_risk_keywords = [
         "kill myself", "suicide", "end my life",
-        "want to die", "die", "feel to die",
+        "want to die", "i want to die",
         "i don't want to live", "harm myself",
         "self harm", "cut myself"
     ]
@@ -179,16 +327,16 @@ def detect_crisis(text: str):
         if phrase in text:
             return {"risk_level": "high", "matched_keywords": [phrase]}
 
+    # Smart implicit detection (FIXED POSITION)
+    if "die" in text and ("feel" in text or "want" in text):
+        return {"risk_level": "high", "matched_keywords": ["implicit_suicidal_intent"]}
+
     # Medium risk detection
     for phrase in medium_risk_keywords:
         if phrase in text:
             return {"risk_level": "medium", "matched_keywords": [phrase]}
 
     return {"risk_level": "none", "matched_keywords": []}
-
-    # Smart pattern detection
-    if "die" in text and ("feel" in text or "want" in text):
-        return {"risk_level": "high", "matched_keywords": ["implicit_suicidal_intent"]}
 
 # ---------------- INITIALIZATION ----------------
 def initialize_resources():
@@ -247,7 +395,7 @@ def generate_llm_response(user_query: str,
     module_id = route_to_module(intent, emotion_data["emotion"])
     module_data = MODULE_REGISTRY[module_id]
 
-    # ---------------- PROMPT (RESTORED STYLE) ----------------
+    # ---------------- PROMPT ----------------
     messages = [
         {
             "role": "system",
@@ -256,15 +404,39 @@ You are an emotionally intelligent assistant for the NeurOm mental wellness app.
 
 STRICT RULES (MUST FOLLOW):
 - ONLY recommend modules from this list:
-  Breathing, Morning Meditation, Gratitude, Tratak, Power Nap, Journaling, Affirmations, Sherlock Mode, Cognitive Games, Night Music
-- DO NOT mention any other activity, feature, or technique outside this list
+  Breathing, Morning Meditation, Gratitude, Tratak, Power Nap, Journaling, Affirmations, Sherlock holmes, Cognitive Games, Night Music
+- DO NOT mention any other activity, feature, or technique outside this list if asked about total activities or modules available
 - DO NOT invent or suggest new modules
 - DO NOT use general knowledge to suggest features
+- DO NOT mention any game or module that is NOT in the above lists
+- DO NOT invent or suggest any new games, modules, or activities
+- DO NOT suggest games on every response — ONLY when the user explicitly asks about games or cognitive activities
+
+GAME SUGGESTION RULES:
+- If user asks "what games are available?" or "suggest a game" or "cognitive games" → list ONLY the 10 games above with a 1-line description
+- MindFlip: card matching memory game
+- NumberNest: number puzzle and logic challenge
+- WordHunt: hidden word vocabulary game
+- AlphaQuest: pattern and word uncovering game
+- PercentPro: pie chart and percentage decision game
+- NumberStorm: dynamic number puzzle race
+- BallRush: reflex and spatial awareness runner
+- RushHour: three-lane reflex action game
+- StackUp: stacking precision and timing game
+- BrickBreaker: arcade brick smashing game
+
 
 - Be supportive, natural, and conversational.
 - Give meaningful responses (not short robotic replies).
 - You can comfort, guide, and explain briefly.
 - DO NOT explain navigation or app paths.
+- DO NOT suggest games unless the user specifically asks about them.
+
+KNOWLEDGE QUERY RULES (when knowledge context is provided):
+- Use the provided book knowledge to give accurate, helpful answers
+- Explain concepts in simple, warm language — not academic tone
+- Always relate the answer back to the user's wellbeing
+- End with a relevant module suggestion from the allowed list
 """
         }
     ]
@@ -275,13 +447,40 @@ STRICT RULES (MUST FOLLOW):
             "content": msg["message"]
         })
 
-    messages.append({
-        "role": "system",
-        "content": f"""
+    # ---------------- RAG CONTEXT (only for knowledge queries) ----------------
+    rag_context = ""
+    if intent == "knowledge_query" and RETRIEVER_INSTANCE is not None:
+        try:
+            docs = RETRIEVER_INSTANCE.get_relevant_documents(user_query)
+            if docs:
+                rag_context = "\n\n".join([doc.page_content for doc in docs[:3]])
+                print(f"RAG: Retrieved {len(docs[:3])} chunks for knowledge query")
+        except Exception as e:
+            print(f"RAG retrieval error: {e}")
+            rag_context = ""
+
+    # ---------------- BUILD CONTEXT MESSAGE ----------------
+    context_content = f"""
 Detected Emotion: {emotion_data['emotion']}
 Detected Intent: {intent}
 Recommended Module: {module_data['module_name']}
 """
+
+    if rag_context:
+        context_content += f"""
+
+You have access to the following knowledge from trusted mindfulness and wellness books.
+Use this knowledge to answer the user's question in a warm, supportive, conversational tone.
+DO NOT copy text directly. Summarize and explain naturally.
+
+--- KNOWLEDGE CONTEXT ---
+{rag_context}
+--- END OF CONTEXT ---
+"""
+
+    messages.append({
+        "role": "system",
+        "content": context_content
     })
 
     messages.append({
@@ -308,6 +507,7 @@ Recommended Module: {module_data['module_name']}
         "confidence": emotion_data["confidence"],
         "intensity": emotion_data["intensity"],
         "safe_mode": False,
+        "rag_used": intent == "knowledge_query" and bool(rag_context),
         "primary_recommendation": {
             "module_id": module_id,
             "module_name": module_data["module_name"],
