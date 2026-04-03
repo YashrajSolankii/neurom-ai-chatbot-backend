@@ -64,7 +64,7 @@ MODULE_REGISTRY = {
     "journal": {"module_name": "Journaling", "category": "reflection"},
     "affirmation": {"module_name": "Affirmations", "category": "emotional_regulation"},
     "sherlock_holmes": {"module_name": "Sherlock holmes", "category": "cognitive"},
-    "number_nest": {"module_name": "Cognitive Games", "category": "cognitive"},
+    "cognitive_games": {"module_name": "Cognitive Games", "category": "cognitive"},
     "night_music": {"module_name": "Night Music", "category": "sleep"},
 
     #Real cognitive games from NeurOm app
@@ -218,7 +218,7 @@ def detect_emotion(text: str):
         }
 
 # ---------------- INTENT DETECTION (AI-IMPROVED) ----------------
-# ---------------- INTENT DETECTION (AI HYBRID) ----------------
+
 def detect_intent(text: str):
     clean_text = normalize_text(text)
 
@@ -272,8 +272,10 @@ def detect_intent(text: str):
         return "emotional_regulation"
 
 # ---------------- ROUTING ----------------
-def route_to_module(intent, emotion):
+def route_to_module(intent: str, emotion: str, user_query: str) -> str:
+    text = user_query.lower()
 
+    # ── INTENT-BASED ROUTING (highest priority) ──
     if intent == "breathing_request":
         return "breatheeasy_relax"
     if intent == "meditation_request":
@@ -291,16 +293,107 @@ def route_to_module(intent, emotion):
     if intent == "sherlock_request":
         return "sherlock_holmes"
     if intent == "cognitive_training":
-        return "number_nest"
+        return "cognitive_games"
     if intent == "music_request":
         return "night_music"
 
-    if emotion in ["stress", "anxiety", "burnout"]:
+    
+
+    # Breathing — stress, pressure, overwhelmed, panic
+    stress_keywords = [
+        "stressed", "stress", "overwhelmed", "pressure", "panic",
+        "tight chest", "suffocated", "suffocating", "overloaded",
+        "too much", "can't cope", "breathless", "urgent", "deadline"
+    ]
+    if any(w in text for w in stress_keywords):
         return "breatheeasy_relax"
-    if emotion == "sadness":
+
+    # Morning Meditation — anxiety, fear, nervousness, unease
+    anxiety_keywords = [
+        "anxious", "anxiety", "nervous", "scared", "fear", "worried",
+        "worrying", "dread", "uneasy", "panic attack", "overthinking",
+        "hyper", "alert", "on edge", "restless mind", "tense"
+    ]
+    if any(w in text for w in anxiety_keywords):
+        return "morning_meditation_guided"
+
+    # Night Music — sleep issues
+    sleep_keywords = [
+        "can't sleep", "insomnia", "sleep", "sleepless", "awake at night",
+        "night thoughts", "racing thoughts at night", "restless night",
+        "tired but can't sleep", "sleep problem", "difficulty sleeping"
+    ]
+    if any(w in text for w in sleep_keywords):
+        return "night_music"
+
+    # Power Nap — burnout, exhaustion, drained
+    burnout_keywords = [
+        "burnout", "burnt out", "exhausted", "drained", "no energy",
+        "mentally tired", "fatigue", "worn out", "no motivation",
+        "sluggish", "lethargic", "completely tired", "energy crash"
+    ]
+    if any(w in text for w in burnout_keywords):
+        return "power_nap_10"
+
+    # Journaling — loneliness, isolation, suppressed feelings
+    loneliness_keywords = [
+        "lonely", "alone", "isolated", "no one", "no friends",
+        "no one understands", "feel invisible", "disconnected",
+        "left out", "abandoned", "no one cares", "feel empty inside",
+        "no one to talk to", "suppressed", "unheard"
+    ]
+    if any(w in text for w in loneliness_keywords):
+        return "journal"
+
+    # Tratak — anger, frustration, irritation
+    anger_keywords = [
+        "angry", "anger", "furious", "irritated", "frustrated",
+        "rage", "mad", "annoyed", "aggressive", "hostile",
+        "irritation", "burst", "explosive", "resentment", "bitter"
+    ]
+    if any(w in text for w in anger_keywords):
+        return "tratak_focus"
+
+    # Affirmations — low confidence, negative self-talk, positive intent
+    affirmation_keywords = [
+        "not good enough", "worthless", "hate myself", "confidence",
+        "self doubt", "insecure", "i can't do anything", "failure",
+        "loser", "useless", "no self worth", "i am bad", "not capable"
+    ]
+    if any(w in text for w in affirmation_keywords):
+        return "affirmation"
+
+    # Sherlock — overthinking, mental loops, analysis paralysis
+    overthinking_keywords = [
+        "overthinking", "can't stop thinking", "mind won't stop",
+        "thoughts keep", "over and over", "replaying", "mental loop",
+        "can't decide", "analysis paralysis", "stuck in my head",
+        "circular thoughts", "thinking too much"
+    ]
+    if any(w in text for w in overthinking_keywords):
+        return "sherlock_holmes"
+
+    # Gratitude — sadness, hopelessness, low mood
+    sadness_keywords = [
+        "sad", "sadness", "depressed", "hopeless", "empty", "numb",
+        "no purpose", "pointless", "lost interest", "nothing matters",
+        "feel nothing", "meaningless", "joyless", "melancholy",
+        "heartbroken", "grief", "feel down", "low mood"
+    ]
+    if any(w in text for w in sadness_keywords):
         return "gratitude_family"
 
-    return "morning_meditation_guided"
+    # ── EMOTION-BASED FALLBACK ──
+    emotion_map = {
+        "anxiety":  "morning_meditation_guided",
+        "stress":   "breatheeasy_relax",
+        "burnout":  "power_nap_10",
+        "sadness":  "gratitude_family",
+        "anger":    "tratak_focus",
+        "positive": "affirmation",
+        "neutral":  "morning_meditation_guided",
+    }
+    return emotion_map.get(emotion, "morning_meditation_guided")
 
 # ---------------- CRISIS DETECTION (Updated) ----------------
 def detect_crisis(text: str):
@@ -337,6 +430,35 @@ def detect_crisis(text: str):
             return {"risk_level": "medium", "matched_keywords": [phrase]}
 
     return {"risk_level": "none", "matched_keywords": []}
+
+# ---------------- GREETING / SMALL TALK DETECTION ----------------
+GREETING_PATTERNS = [
+    "hi", "hey", "hello", "hii", "heyy", "heyyy", "sup", "what's up",
+    "whats up", "yo", "good morning", "good evening", "good afternoon",
+    "good night", "howdy", "greetings", "namaste", "hola",
+]
+
+SMALL_TALK_PATTERNS = [
+    "how are you", "how r u", "how are u", "what are you", "who are you",
+    "tell me about yourself", "what can you do", "what do you do",
+    "are you a bot", "are you ai", "are you real", "okay", "ok", "fine",
+    "alright", "sure", "thanks", "thank you", "cool", "nice", "great",
+    "awesome", "bye", "goodbye", "see you", "take care",
+]
+
+def is_greeting_or_small_talk(text: str) -> bool:
+    clean = text.lower().strip().rstrip("!?.").strip()
+    # Exact match for very short greetings
+    if clean in GREETING_PATTERNS:
+        return True
+    # Short message (under 4 words) that starts with a greeting word
+    words = clean.split()
+    if len(words) <= 3 and any(clean.startswith(g) for g in GREETING_PATTERNS):
+        return True
+    # Small talk patterns
+    if any(pattern in clean for pattern in SMALL_TALK_PATTERNS):
+        return True
+    return False
 
 # ---------------- INITIALIZATION ----------------
 def initialize_resources():
@@ -388,11 +510,45 @@ def generate_llm_response(user_query: str,
             "intensity": "critical",
             "safe_mode": True
         }
+    # ── GREETING / SMALL TALK — no module recommended ──
+    if is_greeting_or_small_talk(user_query):
+        update_session_history(session_id, "user", user_query)
+
+        greeting_response = LLM_INSTANCE.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[
+                {
+                    "role": "system",
+                    "content": """You are NeurOm, a warm and empathetic mental wellness companion.
+The user has sent a greeting or casual message. Respond warmly and naturally.
+Ask ONE gentle, open-ended follow-up question to understand how they are feeling today.
+Do NOT recommend any modules or activities yet.
+Keep response short — 2 to 3 sentences maximum."""
+                },
+                {"role": "user", "content": user_query}
+            ],
+            temperature=0.5
+        )
+
+        answer = greeting_response.choices[0].message.content
+        update_session_history(session_id, "assistant", answer)
+
+        return {
+            "session_id": session_id,
+            "response": answer,
+            "emotion_detected": "neutral",
+            "intent": "greeting",
+            "confidence": 1.0,
+            "intensity": "low",
+            "safe_mode": False,
+            "rag_used": False,
+            "primary_recommendation": None,   # ← No module card shown
+        }
 
     emotion_data = detect_emotion(user_query)
     intent = detect_intent(user_query)
 
-    module_id = route_to_module(intent, emotion_data["emotion"])
+    module_id = route_to_module(intent, emotion_data["emotion"], user_query)
     module_data = MODULE_REGISTRY[module_id]
 
     # ---------------- PROMPT ----------------
@@ -412,6 +568,17 @@ STRICT RULES (MUST FOLLOW):
 - DO NOT invent or suggest any new games, modules, or activities
 - DO NOT suggest games on every response — ONLY when the user explicitly asks about games or cognitive activities
 
+MODULE PURPOSE GUIDE (use this to explain the recommended module naturally):
+- Breathing: instant stress and panic relief, lowers heart rate
+- Morning Meditation: calms anxiety, resets the mind at the start of day
+- Gratitude: heals sadness, shifts focus to positivity
+- Tratak: controls anger and frustration through focused stillness
+- Power Nap: recovers from burnout and exhaustion
+- Journaling: releases loneliness, suppressed feelings, and chaotic thoughts
+- Affirmations: builds confidence and replaces negative self-talk
+- Sherlock Holmes: breaks overthinking loops through logical engagement
+- Night Music: helps with sleep issues and racing thoughts at night
+
 GAME SUGGESTION RULES:
 - If user asks "what games are available?" or "suggest a game" or "cognitive games" → list ONLY the 10 games above with a 1-line description
 - MindFlip: card matching memory game
@@ -424,6 +591,15 @@ GAME SUGGESTION RULES:
 - RushHour: three-lane reflex action game
 - StackUp: stacking precision and timing game
 - BrickBreaker: arcade brick smashing game
+
+
+CRITICAL RULE — MODULE CONSISTENCY:
+The system context below will tell you the exact "Recommended Module" for this user.
+You MUST reference ONLY that module in your response.
+NEVER suggest a different module than what appears in the context.
+This is the most important rule — mismatch between your response and the module card
+is a serious error.
+
 
 
 - Be supportive, natural, and conversational.
