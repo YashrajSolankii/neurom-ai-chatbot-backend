@@ -66,6 +66,7 @@ MODULE_REGISTRY = {
     "sherlock_holmes": {"module_name": "Sherlock holmes", "category": "cognitive"},
     "cognitive_games": {"module_name": "Cognitive Games", "category": "cognitive"},
     "night_music": {"module_name": "Night Music", "category": "sleep"},
+    "other_music": {"module_name": "Other Music", "category": "focus_boost"},
 
     #Real cognitive games from NeurOm app
     "mindflip": {"module_name": "MindFlip", "category": "cognitive"},
@@ -382,6 +383,18 @@ def route_to_module(intent: str, emotion: str, user_query: str) -> str:
     ]
     if any(w in text for w in sadness_keywords):
         return "gratitude_family"
+    # Other Music — focus, addiction, stress relief, brain fog
+    other_music_keywords = [
+        "focus", "concentration", "distracted", "brain fog", "study",
+        "work music", "productivity", "attention", "procrastinating",
+        "can't focus", "motivation to study", "work efficiency",
+        "addiction", "craving", "habit", "urge", "relapse",
+        "compulsive", "impulse", "dopamine", "dependency",
+        "self control", "mental clarity", "deep focus", "lo-fi",
+        "stress relief music", "frequency music", "all in one music"
+    ]
+    if any(w in text for w in other_music_keywords):
+        return "other_music"
 
     # ── EMOTION-BASED FALLBACK ──
     emotion_map = {
@@ -390,7 +403,7 @@ def route_to_module(intent: str, emotion: str, user_query: str) -> str:
         "burnout":  "power_nap_10",
         "sadness":  "gratitude_family",
         "anger":    "tratak_focus",
-        "positive": "affirmation",
+        "positive": "other_music",
         "neutral":  "morning_meditation_guided",
     }
     return emotion_map.get(emotion, "morning_meditation_guided")
@@ -492,6 +505,14 @@ EXPLICIT_MODULE_MAP = {
     "night music": "night_music",
     "sleep music": "night_music",
     "relaxing music": "night_music",
+    "other music": "other_music",
+    "daytime music": "other_music",
+    "work music": "other_music",
+    "study music": "other_music",
+    "focus music": "other_music",
+    "frequency music": "other_music",
+    "lo-fi": "other_music",
+    "lofi": "other_music",
 }
 
 def detect_explicit_module(text: str) -> Optional[str]:
@@ -609,7 +630,7 @@ You are an emotionally intelligent assistant for the NeurOm mental wellness app.
 
 STRICT RULES (MUST FOLLOW):
 - ONLY recommend modules from this list:
-  Breathing, Morning Meditation, Gratitude, Tratak, Power Nap, Journaling, Affirmations, Sherlock holmes, Cognitive Games, Night Music
+  Breathing, Morning Meditation, Gratitude, Tratak, Power Nap, Journaling, Affirmations, Sherlock holmes, Cognitive Games, Night Music, Other Music
 - DO NOT mention any other activity, feature, or technique outside this list if asked about total activities or modules available
 - DO NOT invent or suggest new modules
 - DO NOT use general knowledge to suggest features
@@ -627,6 +648,7 @@ MODULE PURPOSE GUIDE (use this to explain the recommended module naturally):
 - Affirmations: builds confidence and replaces negative self-talk
 - Sherlock Holmes: breaks overthinking loops through logical engagement
 - Night Music: helps with sleep issues and racing thoughts at night
+- Other Music: improves focus, aids addiction recovery, relieves stress through frequency-based music
 
 GAME SUGGESTION RULES:
 - If user asks "what games are available?" or "suggest a game" or "cognitive games" → list ONLY the 10 games above with a 1-line description
