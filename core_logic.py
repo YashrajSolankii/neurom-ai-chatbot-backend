@@ -459,11 +459,52 @@ def is_greeting_or_small_talk(text: str) -> bool:
     if any(pattern in clean for pattern in SMALL_TALK_PATTERNS):
         return True
     return False
+# ---------------- EXPLICIT MODULE MENTION DETECTION ----------------
+EXPLICIT_MODULE_MAP = {
+    "breathing": "breatheeasy_relax",
+    "breathe": "breatheeasy_relax",
+    "breath": "breatheeasy_relax",
+    "breathing exercise": "breatheeasy_relax",
+    "breathing session": "breatheeasy_relax",
+    "morning meditation": "morning_meditation_guided",
+    "meditation": "morning_meditation_guided",
+    "meditate": "morning_meditation_guided",
+    "guided meditation": "morning_meditation_guided",
+    "gratitude": "gratitude_family",
+    "gratitude practice": "gratitude_family",
+    "tratak": "tratak_focus",
+    "candle gazing": "tratak_focus",
+    "focus meditation": "tratak_focus",
+    "power nap": "power_nap_10",
+    "nap": "power_nap_10",
+    "journal": "journal",
+    "journaling": "journal",
+    "guided journaling": "journal",
+    "diary": "journal",
+    "affirmation": "affirmation",
+    "affirmations": "affirmation",
+    "daily affirmations": "affirmation",
+    "sherlock": "sherlock_holmes",
+    "sherlock holmes": "sherlock_holmes",
+    "sherlock mode": "sherlock_holmes",
+    "cognitive games": "cognitive_games",
+    "brain game": "cognitive_games",
+    "night music": "night_music",
+    "sleep music": "night_music",
+    "relaxing music": "night_music",
+}
+
+def detect_explicit_module(text: str) -> Optional[str]:
+    clean = text.lower().strip()
+    # Check longest phrases first to avoid partial matches
+    for phrase in sorted(EXPLICIT_MODULE_MAP.keys(), key=len, reverse=True):
+        if phrase in clean:
+            return EXPLICIT_MODULE_MAP[phrase]
+    return None
 
 # ---------------- INITIALIZATION ----------------
 def initialize_resources():
     global LLM_INSTANCE, RETRIEVER_INSTANCE, RESOURCES_INITIALIZED
-
     if RESOURCES_INITIALIZED:
         return
 
@@ -546,9 +587,17 @@ Keep response short — 2 to 3 sentences maximum."""
         }
 
     emotion_data = detect_emotion(user_query)
-    intent = detect_intent(user_query)
 
-    module_id = route_to_module(intent, emotion_data["emotion"], user_query)
+    # ── EXPLICIT MODULE REQUEST — user directly named a module ──
+    explicit_module_id = detect_explicit_module(user_query)
+    if explicit_module_id:
+        intent = "explicit_module_request"
+        module_id = explicit_module_id
+        print(f"Explicit module detected: {module_id}")
+    else:
+        intent = detect_intent(user_query)
+        module_id = route_to_module(intent, emotion_data["emotion"], user_query)
+
     module_data = MODULE_REGISTRY[module_id]
 
     # ---------------- PROMPT ----------------
@@ -623,7 +672,7 @@ KNOWLEDGE QUERY RULES (when knowledge context is provided):
             "content": msg["message"]
         })
 
-    # ---------------- RAG CONTEXT (only for knowledge queries) ----------------
+    # ---------------- RAG CONTEXT----------------
     rag_context = ""
     if intent == "knowledge_query" and RETRIEVER_INSTANCE is not None:
         try:
