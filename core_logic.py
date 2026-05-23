@@ -697,6 +697,54 @@ Power Nap, Journaling, Affirmations, Sherlock Holmes, Cognitive Games, Night Mus
     # ── 4. EMOTION DETECTION ──
     emotion_data = detect_emotion(user_query)
 
+
+    # ── 4.5. EARLY EXIT — explicit module mention bypasses all gates ──
+    # Must run before enquiry check so "i want to try journaling" is not blocked
+    early_explicit = detect_explicit_module(user_query)
+    if early_explicit:
+        intent = "explicit_module_request"
+        module_id = early_explicit
+        SESSION_LAST_MODULE[session_id] = module_id
+        module_data = MODULE_REGISTRY[module_id]
+        print(f"Early explicit module detected: {module_id}")
+        # Skip all gates, go straight to response generation
+        messages = [
+            {
+                "role": "system",
+                "content": f"""You are an emotionally intelligent assistant for the NeurOm mental wellness app.
+The user has explicitly requested the {module_data['module_name']} module.
+Respond warmly, briefly describe what this module does, and encourage them to start it.
+Do NOT ask follow-up questions. Do NOT recommend any other module.
+Keep response to 2-3 sentences."""
+            },
+            *[{"role": m["role"], "content": m["message"]} for m in history],
+            {"role": "user", "content": user_query}
+        ]
+        completion = LLM_INSTANCE.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=messages,
+            temperature=0.3
+        )
+        answer = completion.choices[0].message.content
+        update_session_history(session_id, "user", user_query)
+        update_session_history(session_id, "assistant", answer)
+        return {
+            "session_id": session_id,
+            "response": answer,
+            "emotion_detected": emotion_data["emotion"],
+            "intent": "explicit_module_request",
+            "confidence": emotion_data["confidence"],
+            "intensity": emotion_data["intensity"],
+            "safe_mode": False,
+            "rag_used": False,
+            "primary_recommendation": {
+                "module_id": module_id,
+                "module_name": module_data["module_name"],
+                "category": module_data["category"],
+                "action": "open_module"
+            }
+        }
+
     # ── 5. EXPLICIT MODULE REQUEST ──
     explicit_module_id = detect_explicit_module(user_query)
     if explicit_module_id:
@@ -709,6 +757,8 @@ Power Nap, Journaling, Affirmations, Sherlock Holmes, Cognitive Games, Night Mus
         # ── 6. LLM GATE — decides if module card is needed ──
         # First check if user is consenting to a previously suggested module
         if is_user_consenting_to_module(user_query, history):
+            show_recommendation = True
+        elif has_emotional_content(user_query) and emotion_data["confidence"] >= 0.55:
             show_recommendation = True
         else:
             show_recommendation = should_recommend_module(user_query, history)
