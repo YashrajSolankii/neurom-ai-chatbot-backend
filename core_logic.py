@@ -138,6 +138,8 @@ MODULE_REGISTRY = {
     "rushhour":                   {"module_name": "RushHour",           "category": "cognitive"},
     "stackup":                    {"module_name": "StackUp",            "category": "cognitive"},
     "brickbreaker":                {"module_name": "BrickBreaker",       "category": "cognitive"},
+    "selfigo_soundscapes":         {"module_name": "Selfigo Soundscapes",  "category": "grounding"},
+    "chakra_music":                {"module_name": "Chakra Music",          "category": "energy_balance"},
 }
 
 # ---------------- UPGRADE 2: SEMANTIC SIMILARITY MODULE MATCHING ----------------
@@ -155,6 +157,8 @@ MODULE_DESCRIPTIONS = {
     "cognitive_games":            "light mental exercises to build focus and concentration",
     "night_music":                "curated calming audio for sleep issues and racing thoughts at night",
     "other_music":                "focus-boosting frequency music for concentration and productivity",
+    "selfigo_soundscapes":         "disconnected from nature, need grounding, craving stillness, overstimulated senses, feeling stagnant, need inner cleansing, spiritual disconnection, feeling scattered energy, craving natural sounds, seeking inner balance",
+    "chakra_music":                "feeling unsafe or insecure, low self-worth, blocked creativity, emotional numbness, lack of confidence, difficulty expressing feelings, foggy intuition, disconnected from purpose, energy feels imbalanced, need whole-body balance",
 }
 
 MODULE_EMBEDDINGS = {}   # pre-computed in initialize_resources()
@@ -451,6 +455,26 @@ def route_to_module(intent: str, emotion: str, user_query: str, session_id: str 
           "work music", "productivity", "attention", "procrastinating",
           "can't focus", "addiction", "craving", "lo-fi", "lofi",
           "frequency music"], "other_music"),
+
+        (["disconnected from nature", "need to reset", "feeling unclean", "stuck emotional pattern",
+          "craving stillness", "need grounding", "overstimulated", "ocean calm", "need to let go",
+          "feeling stagnant", "energy feels blocked", "inner cleansing", "spiritual disconnection",
+          "feeling unanchored", "emotional detox", "longing for peace", "out of tune",
+          "recharge naturally", "inner balance", "scattered energy", "soothing background",
+          "natural sounds", "weighed down", "gentle reset", "harmony within",
+          "disjointed", "soft immersion", "calm ambience", "raw emotionally",
+          "restorative silence"], "selfigo_soundscapes"),
+
+        (["feeling unsafe", "insecure", "low sense of self-worth", "blocked creativity",
+          "emotional numbness", "low personal power", "lack of confidence",
+          "difficulty expressing", "feeling unheard", "communication blocks",
+          "foggy intuition", "lack of clarity", "disconnected from purpose",
+          "closed off emotionally", "feeling ungrounded", "low self-trust",
+          "guarded heart", "struggling to speak up", "indecisive", "spiritually stuck",
+          "lack of inner alignment", "energy feels imbalanced", "low vitality",
+          "blocked self-expression", "unclear thinking", "closed-hearted",
+          "lack of inner wisdom", "energetic realignment", "disconnected from higher self",
+          "whole-body balance"], "chakra_music"),
     ]
 
     for keywords, module in keyword_routing:
@@ -567,6 +591,14 @@ EXPLICIT_MODULE_MAP = {
     "frequency music":    "other_music",
     "lo-fi":              "other_music",
     "lofi":               "other_music",
+    "selfigo soundscapes": "selfigo_soundscapes",
+    "selfigo":             "selfigo_soundscapes",
+    "soundscapes":         "selfigo_soundscapes",
+    "nature sounds":       "selfigo_soundscapes",
+    "chakra music":        "chakra_music",
+    "chakra":              "chakra_music",
+    "chakra healing":      "chakra_music",
+    "energy music":        "chakra_music",
 }
 
 def detect_explicit_module(text: str) -> Optional[str]:
@@ -740,7 +772,54 @@ def generate_llm_response(user_query: str,
             "primary_recommendation": None,
         }
 
-    # ── 2. GREETING / SMALL TALK ──
+    # ── 2. EXPLICIT MODULE — checked BEFORE greeting/enquiry so phrases like
+    #    "ok let's try affirmation" or "start journaling" are never intercepted
+    #    by the acknowledgement or enquiry filters. ──
+    early_explicit = detect_explicit_module(user_query)
+    if early_explicit:
+        emotion_data = detect_emotion(user_query)
+        module_id = early_explicit
+        SESSION_LAST_MODULE[session_id] = module_id
+        module_data = MODULE_REGISTRY[module_id]
+        print(f"Explicit module detected (pre-filter): {module_id}")
+        messages = [
+            {
+                "role": "system",
+                "content": f"""You are an emotionally intelligent assistant for the NeurOm mental wellness app.
+The user has explicitly requested the {module_data['module_name']} module.
+Respond warmly, briefly describe what this module does, and encourage them to start it.
+Do NOT ask follow-up questions. Do NOT recommend any other module.
+Keep response to 2-3 sentences."""
+            },
+            *[{"role": m["role"], "content": m["message"]} for m in history],
+            {"role": "user", "content": user_query}
+        ]
+        completion = LLM_INSTANCE.chat.completions.create(
+            model=CHAT_MODEL,
+            messages=messages,
+            temperature=0.3
+        )
+        answer = completion.choices[0].message.content
+        update_session_history(session_id, "user", user_query)
+        update_session_history(session_id, "assistant", answer)
+        return {
+            "session_id": session_id,
+            "response": answer,
+            "emotion_detected": emotion_data["emotion"],
+            "intent": "explicit_module_request",
+            "confidence": emotion_data["confidence"],
+            "intensity": emotion_data["intensity"],
+            "safe_mode": False,
+            "rag_used": False,
+            "primary_recommendation": {
+                "module_id": module_id,
+                "module_name": module_data["module_name"],
+                "category": module_data["category"],
+                "action": "open_module"
+            }
+        }
+
+    # ── 3. GREETING / SMALL TALK ──
     if is_greeting_or_small_talk(user_query):
         update_session_history(session_id, "user", user_query)
         greeting_response = LLM_INSTANCE.chat.completions.create(
@@ -774,7 +853,7 @@ IMPORTANT: Look at the conversation history and NEVER repeat a question you alre
             "primary_recommendation": None,
         }
 
-    # ── 3. ENQUIRY / ACKNOWLEDGEMENT ──
+    # ── 4. ENQUIRY / ACKNOWLEDGEMENT ──
     if is_enquiry_or_no_recommendation_needed(user_query):
         update_session_history(session_id, "user", user_query)
         enquiry_response = LLM_INSTANCE.chat.completions.create(
@@ -810,10 +889,10 @@ Power Nap, Journaling, Affirmations, Sherlock Holmes, Cognitive Games, Night Mus
             "primary_recommendation": None,
         }
 
-    # ── 4. EMOTION DETECTION ──
+    # ── 5. EMOTION DETECTION ──
     emotion_data = detect_emotion(user_query)
 
-    # ── 4.5. EARLY EXIT — explicit module mention bypasses all gates ──
+    # ── 5.5. SECONDARY EXPLICIT CHECK (consent patterns like 'yes let's go') ──
     early_explicit = detect_explicit_module(user_query)
     if early_explicit:
         intent = "explicit_module_request"
@@ -858,7 +937,7 @@ Keep response to 2-3 sentences."""
             }
         }
 
-    # ── 5. EXPLICIT MODULE REQUEST (second check) ──
+    # ── 6. EXPLICIT MODULE REQUEST (second check, consent flow) ──
     explicit_module_id = detect_explicit_module(user_query)
     if explicit_module_id:
         intent = "explicit_module_request"
@@ -867,7 +946,7 @@ Keep response to 2-3 sentences."""
     else:
         intent = detect_intent(user_query)
 
-        # ── 6. LLM GATE ──
+        # ── 7. LLM GATE ──
         if is_user_consenting_to_module(user_query, history):
             show_recommendation = True
         elif has_emotional_content(user_query) and emotion_data["confidence"] >= 0.55:
@@ -913,7 +992,7 @@ Keep the response conversational and natural."""
     SESSION_LAST_MODULE[session_id] = module_id
     module_data = MODULE_REGISTRY[module_id]
 
-    # ── 7. BUILD PROMPT ──
+    # ── 8. BUILD PROMPT ──
     messages = [
         {
             "role": "system",
@@ -937,6 +1016,8 @@ MODULE PURPOSE GUIDE:
 - Sherlock Holmes: breaks overthinking loops through logical engagement
 - Night Music: helps with sleep issues and racing thoughts at night
 - Other Music: improves focus, aids stress relief through frequency music
+- Selfigo Soundscapes: nature-based audio for grounding, energetic reset, inner cleansing, and stillness
+- Chakra Music: healing frequency music for chakra balance, blocked emotions, and whole-body alignment
 
 CRITICAL RULE — MODULE CONSISTENCY:
 The system context below tells you the exact Recommended Module for this user.
@@ -958,7 +1039,7 @@ KNOWLEDGE QUERY RULES (when knowledge context is provided):
     for msg in history:
         messages.append({"role": msg["role"], "content": msg["message"]})
 
-    # ── 8. RAG CONTEXT ──
+    # ── 9. RAG CONTEXT ──
     rag_context = ""
     if intent == "knowledge_query" and RETRIEVER_INSTANCE is not None:
         try:
@@ -969,7 +1050,7 @@ KNOWLEDGE QUERY RULES (when knowledge context is provided):
         except Exception as e:
             print(f"RAG retrieval error: {e}")
 
-    # ── 9. CONTEXT MESSAGE ──
+    # ── 10. CONTEXT MESSAGE ──
     context_content = f"""
 Detected Emotion: {emotion_data['emotion']}
 Detected Intent: {intent}
